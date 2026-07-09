@@ -16,3 +16,4 @@ This directory contains the templates and files required to set up a FluxCD GitO
 ## Getting Started
 
 Please see **`fluxcd_lab_guide.md`** in this folder for the step-by-step instructions on setting up and running this lab demo.
+# fluxcd-gitops-
