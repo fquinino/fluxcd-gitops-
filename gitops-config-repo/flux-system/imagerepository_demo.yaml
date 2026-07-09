@@ -4,5 +4,5 @@ metadata:
   name: demo
   namespace: flux-system
 spec:
-  image: docker.io/<dockerhub_username>/demo
+  image: docker.io/fquinino/demo
   interval: 1m
