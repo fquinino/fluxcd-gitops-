@@ -6,4 +6,6 @@ metadata:
 spec:
   image: docker.io/fquinino/demo
   interval: 1m
-  provider: dockerhub
+  provider: generic
+  secretRef:
+    name: dockerhub-auth
