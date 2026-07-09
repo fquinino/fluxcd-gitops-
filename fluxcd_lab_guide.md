@@ -77,13 +77,13 @@ flux --version
 Create **two** repositories on GitHub:
 
 1. **`go-app-source`** (Public or Private) - Source repository for the Go Gin app.
-2. **`fluxcd-gitops`** (Private) - Configuration repository for GitOps declarations.
+2. **`fluxcd-gitops-`** (Private) - Configuration repository for GitOps declarations.
 
 ---
 
 ## 5. Step 3: Bootstrap FluxCD on your Cluster
 
-To install FluxCD on the cluster and link it to your `fluxcd-gitops` repository, run the bootstrap command. We must pass the `--components-extra` flag to enable the image reflection and automation controllers.
+To install FluxCD on the cluster and link it to your `fluxcd-gitops-` repository, run the bootstrap command. We must pass the `--components-extra` flag to enable the image reflection and automation controllers.
 
 ```bash
 # Export your kubeconfig pointing to your cluster
@@ -92,7 +92,7 @@ export KUBECONFIG=/path/to/nkp-pro.conf
 # Run the bootstrap command
 flux bootstrap git \
   --components-extra=image-reflector-controller,image-automation-controller \
-  --url=ssh://git@github.com/<your-github-username>/fluxcd-gitops \
+  --url=ssh://git@github.com/<your-github-username>/fluxcd-gitops- \
   --branch=main \
   --private-key-file=/path/to/your/github_ssh_private_key
 ```
@@ -119,12 +119,12 @@ source-controller              1/1     1            1           5m
 
 ## 6. Step 4: Configure the GitOps Repository
 
-Clone the `fluxcd-gitops` repository locally (it will contain the bootstrapped `flux-system/gotk-*` files). We will now add our templates.
+Clone the `fluxcd-gitops-` repository locally (it will contain the bootstrapped `flux-system/gotk-*` files). We will now add our templates.
 
 ```bash
 # Clone the repository
-git clone git@github.com:<your-github-username>/fluxcd-gitops.git
-cd fluxcd-gitops
+git clone git@github.com:<your-github-username>/fluxcd-gitops-.git
+cd fluxcd-gitops-
 ```
 
 Copy the contents of the `gitops-config-repo` template folder to your clone:
@@ -264,10 +264,10 @@ demo    docker.io/your_docker_username/demo 1.0.1   True    Latest image tag res
 ```
 
 ### 3. Check Image Automation Commit Status
-Flux will write the new tag `1.0.1` into the GitOps repository. Pull the changes in your `fluxcd-gitops` clone to inspect it:
+Flux will write the new tag `1.0.1` into the GitOps repository. Pull the changes in your `fluxcd-gitops-` clone to inspect it:
 
 ```bash
-cd /path/to/fluxcd-gitops
+cd /path/to/fluxcd-gitops-
 git pull origin main
 git log -1
 ```
@@ -306,7 +306,7 @@ git push origin main
 ### 3. Observe the Magic
 1. **GitHub Actions**: Builds tag `1.0.2` and pushes it to Docker Hub.
 2. **Flux Image Registry Scan**: Within 1 minute, Flux scans Docker Hub and spots tag `1.0.2`.
-3. **Flux Git Commit**: Flux commits `1.0.2` back to your `fluxcd-gitops` repo.
+3. **Flux Git Commit**: Flux commits `1.0.2` back to your `fluxcd-gitops-` repo.
 4. **Flux Cluster Sync**: Flux Kustomize Controller pulls the change and rolls out the deployment on Kubernetes.
 
 ### 4. Access the Application
