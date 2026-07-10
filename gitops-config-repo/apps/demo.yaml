@@ -17,7 +17,7 @@ spec:
       - name: dockerhub-auth
       containers:
       - name: demo
-        image: docker.io/fernandoqnutanix/demo:1.0.0 # {"$imagepolicy": "flux-system:demo"}
+        image: docker.io/fernandoqnutanix/demo:1.0.1 # {"$imagepolicy": "flux-system:demo"}
         ports:
         - containerPort: 8089
         resources:
