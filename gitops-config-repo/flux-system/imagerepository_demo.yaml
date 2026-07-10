@@ -4,7 +4,7 @@ metadata:
   name: demo
   namespace: flux-system
 spec:
-  image: docker.io/fquinino/demo
+  image: docker.io/fernandoqnutanix/demo
   interval: 1m
   provider: generic
   secretRef:
