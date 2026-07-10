@@ -1,0 +1,20 @@
+apiVersion: apps.kommander.d2iq.io/v1alpha3
+kind: AppDeployment
+metadata:
+  name: demo-custom-app
+  # Workspace namespace (example from this lab):
+  namespace: nkp-workloads01-cqrp5-5gxht
+spec:
+  # Target downstream cluster(s) attached to this workspace.
+  clusterSelector:
+    matchExpressions:
+    - key: kommander.d2iq.io/cluster-name
+      operator: In
+      values:
+      - nkp-workloads01
+  appRef:
+    # This must reference an App/ClusterApp available in your catalog.
+    # Replace these values with your app package identifier/version.
+    kind: ClusterApp
+    appID: <your-cluster-app-id>
+    name: <your-cluster-app-name-and-version>

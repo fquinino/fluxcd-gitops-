@@ -52,6 +52,7 @@ Security benefits:
   - App manifests (`apps/`)
   - Flux image automation manifests (`flux-system/`)
   - Federated phase-2 manifests (`federation-phase2/`)
+  - Federated phase-2B AppDeployment manifests (`federation-phase2b-appdeployment/`)
 - `scripts/`
   - optional helper scripts (manual YAML flow is primary)
 - `fluxcd_lab_guide.md`
