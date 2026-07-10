@@ -52,7 +52,7 @@ Security benefits:
   - App manifests (`apps/`)
   - Flux image automation manifests (`flux-system/`)
 - `scripts/`
-  - helper automation scripts for GitHub App setup
+  - optional helper scripts (manual YAML flow is primary)
 - `fluxcd_lab_guide.md`
   - full step-by-step lab guide
 
@@ -63,11 +63,11 @@ Follow `fluxcd_lab_guide.md`.
 The default path in the guide is now:
 
 1. create GitHub App secret,
-2. install Flux controllers,
-3. configure `GitRepository` with `provider: github` and `secretRef`,
+2. use existing NKP Flux controllers in `kommander-flux`,
+3. create lab `GitRepository`/`Kustomization` with `provider: github` and `secretRef`,
 4. reconcile and validate sources/kustomizations.
 
 For Docker image automation, the guide also configures registry auth on both paths:
-- Flux scan auth (`flux-system/dockerhub-auth`) for `ImageRepository`
+- Flux scan auth (`kommander-flux/dockerhub-auth`) for `ImageRepository`
 - workload pull auth (`<app-namespace>/dockerhub-auth`) for pod image pulls
 - SOPS + age encryption so only encrypted secret manifests are committed

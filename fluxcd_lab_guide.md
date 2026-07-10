@@ -10,16 +10,12 @@ Welcome to the FluxCD GitOps & CI/CD Demo Lab! This guide walks you through sett
 
 ```mermaid
 flowchart TD
-    A[Developer Commit] --> B[GitHub Repository]
-    B --> C[GitHub Actions Build]
-    C --> D[Docker Hub Push]
-    D --> E[Flux ImageRepository Scan]
-    E --> F[Flux ImagePolicy Resolve Tag]
-    F --> G[Flux ImageUpdateAutomation Commit]
-    G --> B
-    B --> H[Flux Source Controller]
-    H --> I[Flux Kustomization Apply]
-    I --> J[Kubernetes Deployment Rollout]
+    A[Source Repo<br/>go-app-source] -->|git push e.g. main.go update| B[GitHub Actions<br/>CI Workflow<br/>Build + Push Image]
+    B -->|image tag e.g. v1.0.1| C[Docker Hub<br/>Container Registry]
+    C -->|1) Scan registry for new tags| D[FluxCD]
+    D -->|2) Commit and push tag update| E[GitOps Repo<br/>YAML manifests]
+    E -->|Flux source-controller pulls desired state| D
+    D -->|3) Reconcile cluster state| F[Kubernetes<br/>Deploy App]
 ```
 
 This workflow shows the closed GitOps loop: CI pushes image, Flux updates Git, and cluster state converges from Git.
@@ -60,7 +56,7 @@ This workflow shows the closed GitOps loop: CI pushes image, Flux updates Git, a
 
 ### Key Components
 1. **Source Code Repo (`go-app-source`)**: Contains our Go Gin application and GitHub Actions CI file.
-2. **GitOps Config Repo (`flux-system-gitops`)**: Contains Kubernetes manifests and FluxCD automation configuration.
+2. **GitOps Config Repo (`fluxcd-gitops-`)**: Contains Kubernetes manifests and FluxCD automation configuration.
 3. **Flux Image-Reflector-Controller**: Scans the Docker Hub registry for new tags matching a SemVer range.
 4. **Flux Image-Automation-Controller**: Checks out the Git repository, replaces the image tag comment marker with the new tag, and commits/pushes the change back to the Git repository.
 
@@ -71,6 +67,7 @@ This workflow shows the closed GitOps loop: CI pushes image, Flux updates Git, a
 * **Kubernetes Cluster**: A running cluster (like the Nutanix `nkp-pro` cluster).
 * **Docker Hub Account**: A free account at [hub.docker.com](https://hub.docker.com). You will need your password or a Personal Access Token (recommended).
 * **GitHub Account**: A GitHub account to host the two repositories.
+* **NKP / Kommander Flux controllers already running** in namespace `kommander-flux`.
 * **GitHub App for Flux (Default in this lab)**:
   * App ID
   * Installation ID (app installed on the target repo/org)
@@ -104,9 +101,9 @@ Create **two** repositories on GitHub:
 
 ---
 
-## 5. Step 3: Install FluxCD with GitHub App Auth (Default)
+## 5. Step 3: Integrate with Existing NKP Flux (`kommander-flux`)
 
-This lab uses GitHub App authentication from the first setup, not as a later migration.
+This lab demonstrates integration with the existing NKP Flux installation in `kommander-flux` (no additional Flux install required).
 
 ### Why this default is better
 
@@ -126,49 +123,65 @@ This lab uses GitHub App authentication from the first setup, not as a later mig
 
 Install your app on `fquinino/fluxcd-gitops-` (or your own target repo).
 
-### 5.2 Export kubeconfig and install Flux controllers
+### 5.2 Export kubeconfig and validate NKP Flux controllers
 
 ```bash
 export KUBECONFIG=/path/to/nkp-pro.conf
 
-flux install \
-  --components-extra=image-reflector-controller,image-automation-controller
+kubectl get deployments -n kommander-flux | rg "source-controller|kustomize-controller|helm-controller|image-reflector-controller|image-automation-controller|notification-controller"
 ```
 
-### 5.3 Generate installation ID and apply secret + GitRepository patch
+### 5.2.1 NKP / D2iQ references
 
-This repo includes a helper script:
-`scripts/setup_github_app_auth.py`
+Kommander (NKP) deploys Flux controllers in `kommander-flux` and supports reusing that instance for custom GitRepository and Kustomization resources. Use these references for platform-aligned behavior and troubleshooting:
 
+* [D2iQ: Deploy applications using GitOps](https://archive-docs-old.d2iq.com/dkp/kommander/2.0/custom-git/)
+* [D2iQ: Create a Git Repository](https://docs.d2iq.com/dkp/2.8/create-a-git-repository)
+
+Controller logs:
 ```bash
-python3 scripts/setup_github_app_auth.py \
-  --app-id "<YOUR_APP_ID>" \
-  --private-key "/path/to/github-app.private-key.pem" \
-  --owner "<your-github-username>" \
-  --repo "fluxcd-gitops-" \
-  --namespace flux-system \
-  --gitrepository flux-system \
-  --apply
+kubectl -n kommander-flux logs -l app=source-controller
+kubectl -n kommander-flux logs -l app=kustomize-controller
+kubectl -n kommander-flux logs -l app=helm-controller
 ```
 
-What this does:
-* discovers the GitHub App installation ID for the target repo,
-* creates/updates secret `github-app-auth`,
-* patches `GitRepository/flux-system` with:
-  * `spec.provider: github`
-  * `spec.secretRef.name: github-app-auth`
-* triggers a Flux source reconcile.
+### 5.3 Create GitHub App secret in `kommander-flux` (YAML-first)
 
-### 5.4 Create (or update) GitRepository if it does not exist yet
+Find your **Installation ID** in GitHub (App settings -> Install App -> target repo/org installation).
 
-If you are installing from scratch and `GitRepository/flux-system` does not exist yet, apply this manifest first:
+Create `github-app-auth` in `kommander-flux`:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-app-auth
+  namespace: kommander-flux
+type: Opaque
+stringData:
+  githubAppID: "<YOUR_APP_ID>"
+  githubAppInstallationID: "<YOUR_INSTALLATION_ID>"
+  githubAppPrivateKey: |
+    -----BEGIN RSA PRIVATE KEY-----
+    <YOUR_PRIVATE_KEY_CONTENT>
+    -----END RSA PRIVATE KEY-----
+```
+
+Apply it:
+```bash
+kubectl apply -f github-app-auth.yaml
+```
+
+### 5.4 Create lab GitRepository in `kommander-flux`
+
+Create a dedicated source for this lab:
 
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
-  name: flux-system
-  namespace: flux-system
+  name: lab-gitops
+  namespace: kommander-flux
 spec:
   interval: 1m0s
   url: https://github.com/<your-github-username>/fluxcd-gitops-
@@ -179,24 +192,55 @@ spec:
     name: github-app-auth
 ```
 
-Then reconcile:
+Apply it:
 ```bash
-flux reconcile source git flux-system -n flux-system
+kubectl apply -f lab-gitrepository.yaml
 ```
 
-### 5.5 Validate source auth
+### 5.5 Create lab Kustomization in `kommander-flux`
 
-```bash
-flux get sources git -n flux-system
+This Kustomization tells NKP Flux to apply your lab manifests from the repo:
+
+```yaml
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: lab-gitops
+  namespace: kommander-flux
+spec:
+  interval: 1m0s
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: lab-gitops
+  path: ./gitops-config-repo/flux-system
 ```
 
-If `READY=True`, Flux source sync is healthy and using GitHub App credentials.
+Apply it:
+```bash
+kubectl apply -f lab-kustomization.yaml
+```
 
-### Verify the Installation
-Check that all controllers, including the image reflector and image automation controllers, are up and running:
+Reconcile source and kustomization:
+```bash
+flux reconcile source git lab-gitops -n kommander-flux
+flux reconcile kustomization lab-gitops -n kommander-flux
+```
+
+### 5.6 Validate integration
 
 ```bash
-kubectl get deployments -n flux-system
+flux get sources git -n kommander-flux
+flux get kustomizations -n kommander-flux
+```
+
+If `READY=True`, NKP Flux is now syncing your lab repo using GitHub App auth.
+
+### Verify the NKP Flux Runtime
+Check that NKP-managed Flux controllers are healthy:
+
+```bash
+kubectl get deployments -n kommander-flux
 ```
 
 *Expected Output:*
@@ -280,7 +324,7 @@ sed -i 's/<dockerhub_username>/your_docker_username/g' flux-system/imagereposito
 4. **Image Tag Marker (`apps/demo.yaml`)**:
    Notice the comment marker inline next to the container image:
    ```yaml
-   image: docker.io/your_docker_username/demo:1.0.0 # {"$imagepolicy": "flux-system:demo"}
+   image: docker.io/your_docker_username/demo:1.0.0 # {"$imagepolicy": "kommander-flux:demo"}
    ```
    *This comment tells Flux exactly where to write the new image tag.*
 
@@ -324,13 +368,13 @@ Before pushing, you must configure Docker Hub credentials so GitHub Actions can 
 
 ### Configure Docker Hub Auth for Both Pull Paths (Recommended)
 Use the same `dockerhub-auth` secret name in both namespaces:
-* `flux-system`: used by Flux `ImageRepository` scan auth.
+* `kommander-flux`: used by Flux `ImageRepository` scan auth.
 * `default` (or app namespace): used by kubelet to pull the app image.
 
 ```bash
-# Flux side: image-reflector-controller auth (namespace flux-system)
+# Flux side: image-reflector-controller auth (namespace kommander-flux)
 kubectl create secret docker-registry dockerhub-auth \
-  -n flux-system \
+  -n kommander-flux \
   --docker-server=https://index.docker.io/v1/ \
   --docker-username="<dockerhub_username>" \
   --docker-password="<dockerhub_token>" \
@@ -359,6 +403,24 @@ so pod pulls and Flux image scans stay aligned on the same registry identity.
 This template includes encrypted-secret manifests:
 * `gitops-config-repo/flux-system/dockerhub-auth-flux-system.secret.yaml`
 * `gitops-config-repo/apps/dockerhub-auth-default.secret.yaml`
+
+#### SOPS Flow (Mermaid)
+
+```mermaid
+flowchart TD
+    A[Local age keypair<br/>keys.txt + public key] --> B[.sops.yaml policy]
+    B --> C[Local secret templates<br/>dockerhub-auth *.secret.yaml]
+    C --> D[sops encrypt in place]
+    D --> E[Encrypted secret files in Git]
+    E --> F[Flux source-controller pulls repo]
+    F --> G[Flux kustomize-controller with decryption:sops]
+    H[sops-age Kubernetes Secret<br/>kommander-flux namespace] --> G
+    G --> I[Decrypted Secret applied in kommander-flux and default]
+    I --> J[ImageRepository scan auth]
+    I --> K[Pod imagePullSecrets auth]
+```
+
+This is the trust model in this lab: plaintext secrets exist only on your workstation during encryption and inside the cluster after Flux decryption; Git stores only encrypted payloads.
 
 Flux decryption is enabled in `flux-system/gotk-sync.yaml`:
 ```yaml
@@ -390,7 +452,7 @@ Update `.sops.yaml` with that public key (replace `age1REPLACE_WITH_YOUR_PUBLIC_
 #### 3) Create Flux decryption key in cluster
 ```bash
 kubectl create secret generic sops-age \
-  -n flux-system \
+  -n kommander-flux \
   --from-file=age.agekey=~/.config/sops/age/keys.txt
 ```
 
@@ -417,13 +479,13 @@ git commit -m "Add SOPS-encrypted Docker Hub auth secrets"
 git push origin main
 
 flux reconcile kustomization flux-system -n flux-system
-flux reconcile kustomization apps -n flux-system
+flux reconcile kustomization apps -n kommander-flux
 ```
 
 #### 6) Validate
 ```bash
-flux get image repository demo -n flux-system
-flux get image policy demo -n flux-system
+flux get image repository demo -n kommander-flux
+flux get image policy demo -n kommander-flux
 kubectl get pods -n default
 ```
 
@@ -449,10 +511,10 @@ Once the GitHub Actions CI run succeeds, verify that the image is available on D
 
 If needed, force immediate reconciliation:
 ```bash
-flux reconcile image repository demo -n flux-system
-flux reconcile image policy demo -n flux-system
-flux reconcile image update demo -n flux-system
-flux reconcile kustomization apps -n flux-system
+flux reconcile image repository demo -n kommander-flux
+flux reconcile image policy demo -n kommander-flux
+flux reconcile image update demo -n kommander-flux
+flux reconcile kustomization apps -n kommander-flux
 ```
 
 ### 1. Check Image Registry Scan Status
@@ -491,7 +553,7 @@ cat apps/demo.yaml | grep image:
 ```
 *Output will now show `1.0.1` instead of `1.0.0`:*
 ```yaml
-        image: docker.io/your_docker_username/demo:1.0.1 # {"$imagepolicy": "flux-system:demo"}
+        image: docker.io/your_docker_username/demo:1.0.1 # {"$imagepolicy": "kommander-flux:demo"}
 ```
 
 ---
