@@ -6,6 +6,26 @@ Welcome to the FluxCD GitOps & CI/CD Demo Lab! This guide walks you through sett
 
 ## 1. Flow Overview
 
+### Visual Workflow (Mermaid)
+
+```mermaid
+flowchart TD
+    A[Developer Commit] --> B[GitHub Repository]
+    B --> C[GitHub Actions Build]
+    C --> D[Docker Hub Push]
+    D --> E[Flux ImageRepository Scan]
+    E --> F[Flux ImagePolicy Resolve Tag]
+    F --> G[Flux ImageUpdateAutomation Commit]
+    G --> B
+    B --> H[Flux Source Controller]
+    H --> I[Flux Kustomization Apply]
+    I --> J[Kubernetes Deployment Rollout]
+```
+
+This workflow shows the closed GitOps loop: CI pushes image, Flux updates Git, and cluster state converges from Git.
+
+### Text Workflow
+
 ```text
   ┌────────────────┐
   │  Source Repo   │  (go-app-source)
