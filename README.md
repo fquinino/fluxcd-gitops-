@@ -1,20 +1,73 @@
-# FluxCD GitOps with CI/CD Demo Templates
+# FluxCD GitOps Lab Templates
 
-This directory contains the templates and files required to set up a FluxCD GitOps demo for your clients.
+This repository contains a complete, practical FluxCD lab that demonstrates:
 
-## Directory Structure
+- pull-based GitOps reconciliation,
+- GitHub App authentication (default and recommended),
+- image automation from Docker Hub back into Git, and
+- end-to-end Kubernetes deployment reconciliation.
 
-* **`app-source-repo/`**: The source code repository containing:
-  - A simple Go web application using Gin (`main.go`).
-  - A multi-stage `Dockerfile` to build the app image.
-  - A GitHub Actions workflow (`.github/workflows/docker-image.yml`) to automatically build and push new images to Docker Hub.
-* **`gitops-config-repo/`**: The GitOps repository containing:
-  - The application manifests (`apps/demo.yaml`) with policy comment markers.
-  - The FluxCD Image Automation manifests (`flux-system/`): `imagerepository_demo.yaml`, `imagepolicy_demo.yaml`, and `imageupdateautomation_demo.yaml`.
-  - A Flux Kustomization (`flux-system/apps.yaml`) that binds the app sync to the cluster.
+## Why FluxCD (Pull-Based GitOps)
 
-## Getting Started
+Flux runs inside your cluster and continuously compares:
 
-Please see **`fluxcd_lab_guide.md`** in this folder for the step-by-step instructions on setting up and running this lab demo.
-# fluxcd-gitops-
-# fluxcd-lab
+- desired state in Git, vs
+- actual state in Kubernetes.
+
+When drift is detected (manual change, deleted workload, failed rollout), Flux reconciles the cluster back to Git. This makes Git the single source of truth and avoids external CD systems pushing directly into the cluster.
+
+## How Flux Works Under the Hood
+
+Core loop:
+
+1. Developer pushes code/manifests to Git.
+2. `source-controller` pulls and snapshots repository content.
+3. `kustomize-controller` and/or `helm-controller` apply desired state.
+4. Controllers continuously reconcile and self-heal drift.
+5. Optional `notification-controller` sends deployment events and can receive webhooks for fast reconcile.
+
+## How GitHub App Auth Works with Flux
+
+This lab uses GitHub App auth by default (no long-lived deploy key or PAT in cluster):
+
+1. Flux reads `githubAppID`, `githubAppInstallationID`, and `githubAppPrivateKey` from a Kubernetes Secret.
+2. `source-controller` signs a short-lived JWT with the private key.
+3. Flux exchanges JWT with GitHub API for an installation access token.
+4. Flux performs authenticated Git HTTPS fetch/clone with that token.
+5. Flux refreshes tokens automatically before expiration.
+
+Security benefits:
+
+- short-lived scoped credentials,
+- least privilege at repo/org level,
+- simpler rotation by replacing app private key and reconciling.
+
+## Repository Structure
+
+- `app-source-repo/`
+  - Demo Go app (`main.go`)
+  - `Dockerfile`
+  - GitHub Actions workflow for build/push
+- `gitops-config-repo/`
+  - App manifests (`apps/`)
+  - Flux image automation manifests (`flux-system/`)
+- `scripts/`
+  - helper automation scripts for GitHub App setup
+- `fluxcd_lab_guide.md`
+  - full step-by-step lab guide
+
+## Quick Start
+
+Follow `fluxcd_lab_guide.md`.
+
+The default path in the guide is now:
+
+1. create GitHub App secret,
+2. install Flux controllers,
+3. configure `GitRepository` with `provider: github` and `secretRef`,
+4. reconcile and validate sources/kustomizations.
+
+For Docker image automation, the guide also configures registry auth on both paths:
+- Flux scan auth (`flux-system/dockerhub-auth`) for `ImageRepository`
+- workload pull auth (`<app-namespace>/dockerhub-auth`) for pod image pulls
+- SOPS + age encryption so only encrypted secret manifests are committed

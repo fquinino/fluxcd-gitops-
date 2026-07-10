@@ -51,7 +51,10 @@ Welcome to the FluxCD GitOps & CI/CD Demo Lab! This guide walks you through sett
 * **Kubernetes Cluster**: A running cluster (like the Nutanix `nkp-pro` cluster).
 * **Docker Hub Account**: A free account at [hub.docker.com](https://hub.docker.com). You will need your password or a Personal Access Token (recommended).
 * **GitHub Account**: A GitHub account to host the two repositories.
-* **SSH Key**: An SSH key configured in your GitHub account for Git access and saved locally (e.g. at `~/.ssh/id_rsa` or `~/.ssh/id_github`).
+* **GitHub App for Flux (Default in this lab)**:
+  * App ID
+  * Installation ID (app installed on the target repo/org)
+  * App private key `.pem`
 
 ---
 
@@ -81,21 +84,93 @@ Create **two** repositories on GitHub:
 
 ---
 
-## 5. Step 3: Bootstrap FluxCD on your Cluster
+## 5. Step 3: Install FluxCD with GitHub App Auth (Default)
 
-To install FluxCD on the cluster and link it to your `fluxcd-gitops-` repository, run the bootstrap command. We must pass the `--components-extra` flag to enable the image reflection and automation controllers.
+This lab uses GitHub App authentication from the first setup, not as a later migration.
+
+### Why this default is better
+
+* Short-lived access tokens (auto-rotated by Flux)
+* Least-privilege scoped repo access
+* No long-lived SSH deploy key stored in cluster
+
+### Under the hood (GitHub App auth flow)
+
+1. Flux `source-controller` reads `githubAppID`, `githubAppInstallationID`, and `githubAppPrivateKey` from a Kubernetes secret.
+2. Flux signs a short-lived JWT locally with the private key.
+3. Flux exchanges the JWT with GitHub API for an installation access token.
+4. Flux uses this short-lived token over HTTPS to fetch the Git repository.
+5. Before token expiration, Flux transparently refreshes and keeps reconciling.
+
+### 5.1 Install your GitHub App on the GitOps repository
+
+Install your app on `fquinino/fluxcd-gitops-` (or your own target repo).
+
+### 5.2 Export kubeconfig and install Flux controllers
 
 ```bash
-# Export your kubeconfig pointing to your cluster
 export KUBECONFIG=/path/to/nkp-pro.conf
 
-# Run the bootstrap command
-flux bootstrap git \
-  --components-extra=image-reflector-controller,image-automation-controller \
-  --url=ssh://git@github.com/<your-github-username>/fluxcd-gitops- \
-  --branch=main \
-  --private-key-file=/path/to/your/github_ssh_private_key
+flux install \
+  --components-extra=image-reflector-controller,image-automation-controller
 ```
+
+### 5.3 Generate installation ID and apply secret + GitRepository patch
+
+This repo includes a helper script:
+`scripts/setup_github_app_auth.py`
+
+```bash
+python3 scripts/setup_github_app_auth.py \
+  --app-id "<YOUR_APP_ID>" \
+  --private-key "/path/to/github-app.private-key.pem" \
+  --owner "<your-github-username>" \
+  --repo "fluxcd-gitops-" \
+  --namespace flux-system \
+  --gitrepository flux-system \
+  --apply
+```
+
+What this does:
+* discovers the GitHub App installation ID for the target repo,
+* creates/updates secret `github-app-auth`,
+* patches `GitRepository/flux-system` with:
+  * `spec.provider: github`
+  * `spec.secretRef.name: github-app-auth`
+* triggers a Flux source reconcile.
+
+### 5.4 Create (or update) GitRepository if it does not exist yet
+
+If you are installing from scratch and `GitRepository/flux-system` does not exist yet, apply this manifest first:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  url: https://github.com/<your-github-username>/fluxcd-gitops-
+  ref:
+    branch: main
+  provider: github
+  secretRef:
+    name: github-app-auth
+```
+
+Then reconcile:
+```bash
+flux reconcile source git flux-system -n flux-system
+```
+
+### 5.5 Validate source auth
+
+```bash
+flux get sources git -n flux-system
+```
+
+If `READY=True`, Flux source sync is healthy and using GitHub App credentials.
 
 ### Verify the Installation
 Check that all controllers, including the image reflector and image automation controllers, are up and running:
@@ -227,6 +302,115 @@ Before pushing, you must configure Docker Hub credentials so GitHub Actions can 
 3. Create the secret `DOCKERHUB_USERNAME` and set it to your Docker Hub username.
 4. Create the secret `DOCKERHUB_TOKEN` and set it to your Docker Hub Personal Access Token or password.
 
+### Configure Docker Hub Auth for Both Pull Paths (Recommended)
+Use the same `dockerhub-auth` secret name in both namespaces:
+* `flux-system`: used by Flux `ImageRepository` scan auth.
+* `default` (or app namespace): used by kubelet to pull the app image.
+
+```bash
+# Flux side: image-reflector-controller auth (namespace flux-system)
+kubectl create secret docker-registry dockerhub-auth \
+  -n flux-system \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username="<dockerhub_username>" \
+  --docker-password="<dockerhub_token>" \
+  --docker-email="you@example.com" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Workload side: pod image pulls (namespace default)
+kubectl create secret docker-registry dockerhub-auth \
+  -n default \
+  --docker-server=https://index.docker.io/v1/ \
+  --docker-username="<dockerhub_username>" \
+  --docker-password="<dockerhub_token>" \
+  --docker-email="you@example.com" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+The demo deployment in this template references:
+```yaml
+spec:
+  imagePullSecrets:
+  - name: dockerhub-auth
+```
+so pod pulls and Flux image scans stay aligned on the same registry identity.
+
+### (Recommended) Manage Docker Hub Auth with SOPS + age
+This template includes encrypted-secret manifests:
+* `gitops-config-repo/flux-system/dockerhub-auth-flux-system.secret.yaml`
+* `gitops-config-repo/apps/dockerhub-auth-default.secret.yaml`
+
+Flux decryption is enabled in `flux-system/gotk-sync.yaml`:
+```yaml
+spec:
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+```
+
+#### 1) Install tools
+```bash
+brew install sops age
+```
+
+#### 2) Generate an age key pair
+```bash
+mkdir -p ~/.config/sops/age
+age-keygen -o ~/.config/sops/age/keys.txt
+```
+
+Get the public key:
+```bash
+grep "^# public key:" ~/.config/sops/age/keys.txt | awk '{print $4}'
+```
+
+Update `.sops.yaml` with that public key (replace `age1REPLACE_WITH_YOUR_PUBLIC_KEY`).
+
+#### 3) Create Flux decryption key in cluster
+```bash
+kubectl create secret generic sops-age \
+  -n flux-system \
+  --from-file=age.agekey=~/.config/sops/age/keys.txt
+```
+
+#### 4) Fill placeholders locally and encrypt before commit
+```bash
+export DOCKERHUB_USERNAME="<dockerhub_username>"
+export DOCKERHUB_TOKEN="<dockerhub_token>"
+export DOCKERHUB_AUTH="$(printf "%s" "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" | base64)"
+
+for f in \
+  gitops-config-repo/flux-system/dockerhub-auth-flux-system.secret.yaml \
+  gitops-config-repo/apps/dockerhub-auth-default.secret.yaml; do
+  sed -i '' "s/REPLACE_DOCKERHUB_USERNAME/${DOCKERHUB_USERNAME}/g" "$f"
+  sed -i '' "s/REPLACE_DOCKERHUB_TOKEN/${DOCKERHUB_TOKEN}/g" "$f"
+  sed -i '' "s/REPLACE_BASE64_USERNAME_COLON_TOKEN/${DOCKERHUB_AUTH//\//\\/}/g" "$f"
+  sops --encrypt --in-place "$f"
+done
+```
+
+#### 5) Commit encrypted files and reconcile
+```bash
+git add .sops.yaml flux-system/gotk-sync.yaml gitops-config-repo
+git commit -m "Add SOPS-encrypted Docker Hub auth secrets"
+git push origin main
+
+flux reconcile kustomization flux-system -n flux-system
+flux reconcile kustomization apps -n flux-system
+```
+
+#### 6) Validate
+```bash
+flux get image repository demo -n flux-system
+flux get image policy demo -n flux-system
+kubectl get pods -n default
+```
+
+### Optional Local-Only Secret Apply
+If you do not want any encrypted secret files in Git, you can still use:
+`scripts/apply_dockerhub_auth.sh`
+
 ### Commit and Push to Trigger CI
 
 ```bash
@@ -242,6 +426,14 @@ Navigate to the **Actions** tab in GitHub to watch the workflow build and push y
 ## 8. Step 6: Verify the Automated Pipeline
 
 Once the GitHub Actions CI run succeeds, verify that the image is available on Docker Hub and Flux has detected it.
+
+If needed, force immediate reconciliation:
+```bash
+flux reconcile image repository demo -n flux-system
+flux reconcile image policy demo -n flux-system
+flux reconcile image update demo -n flux-system
+flux reconcile kustomization apps -n flux-system
+```
 
 ### 1. Check Image Registry Scan Status
 ```bash

@@ -1,0 +1,4 @@
+creation_rules:
+  - path_regex: gitops-config-repo/.*\.secret\.yaml$
+    encrypted_regex: "^(data|stringData)$"
+    age: "age10548c2w827sd73a36l4zn8n2m7lsfgyssz6y0d86mzg6xw5s05kqxjnuhe"

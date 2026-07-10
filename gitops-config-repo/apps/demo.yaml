@@ -13,6 +13,8 @@ spec:
       labels:
         app: demo
     spec:
+      imagePullSecrets:
+      - name: dockerhub-auth
       containers:
       - name: demo
         image: docker.io/fquinino/demo:1.0.0 # {"$imagepolicy": "flux-system:demo"}
