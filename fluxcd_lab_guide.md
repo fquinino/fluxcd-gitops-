@@ -254,6 +254,70 @@ notification-controller        1/1     1            1           5m
 source-controller              1/1     1            1           5m
 ```
 
+### 5.7 Deep Investigation: How Kubefed Works in This Cluster
+
+From live cluster inspection, this NKP environment is running a full federation control plane:
+
+* `KubeFedConfig` exists in `kube-federation-system` with `scope: Cluster`.
+* Member clusters registered in `KubeFedCluster`:
+  * `nkp-pro` (management)
+  * `nkp-workloads01` (downstream)
+* `FederatedTypeConfig` is enabled for key resources, including:
+  * `namespaces`, `deployments.apps`, `services`, `configmaps`, `secrets`.
+* Workspace namespace `nkp-workloads01-cqrp5-5gxht` already has:
+  * `FederatedNamespace` scoped to cluster selector label
+    `kommander.d2iq.io/workspace-namespace-ref=nkp-workloads01-cqrp5-5gxht`.
+* Kommander application propagation is active via:
+  * `AppDeployment` (desired app in workspace)
+  * `AppDeploymentInstance` (realized app per downstream cluster)
+
+This means your cluster supports both:
+1. **Kommander AppDeployment model** (catalog-first, workspace-driven), and
+2. **Kubefed native model** (Federated* resources for custom workloads).
+
+### 5.8 Phase 2: Deploy Demo App to Federated Namespace (Downstream)
+
+This phase demonstrates custom app federation to downstream clusters using Kubefed-native resources.
+
+#### Included manifests
+
+`gitops-config-repo/federation-phase2/` contains:
+
+* `namespace-federation.yaml`:
+  * Creates `Namespace/demo-federated`
+  * Creates `FederatedNamespace/demo-federated`
+  * Places it to workspace downstream cluster selector.
+* `demo-federated-deployment.yaml`:
+  * `FederatedDeployment/demo` with image `docker.io/fernandoqnutanix/demo:1.0.1`
+* `demo-federated-service.yaml`:
+  * `FederatedService/demo`
+* `kustomization.yaml`
+
+#### Apply phase 2 (manual test)
+
+```bash
+kubectl apply -k ./gitops-config-repo/federation-phase2
+```
+
+#### Validate federation and downstream rollout
+
+```bash
+# Federated objects on management cluster
+kubectl get federatednamespace,federateddeployment,federatedservice -n demo-federated
+
+# Check member cluster targeting
+kubectl get federatednamespace demo-federated -n demo-federated -o yaml
+
+# Kommander cluster membership
+kubectl get kubefedclusters.core.kubefed.io -n kube-federation-system
+```
+
+#### AppDeployment alternative
+
+If you want a fully NKP-native experience (catalog + policy + lifecycle), use `AppDeployment` in workspace namespace `nkp-workloads01-cqrp5-5gxht`. That creates `AppDeploymentInstance` per downstream cluster automatically.
+
+For this lab’s custom demo image, Kubefed-native `FederatedDeployment` is the most direct path.
+
 ---
 
 ## 6. Step 4: Configure the GitOps Repository

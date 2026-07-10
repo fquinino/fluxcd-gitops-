@@ -1,0 +1,41 @@
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedDeployment
+metadata:
+  name: demo
+  namespace: demo-federated
+spec:
+  placement:
+    clusterSelector:
+      matchLabels:
+        kommander.d2iq.io/workspace-namespace-ref: nkp-workloads01-cqrp5-5gxht
+  template:
+    metadata:
+      labels:
+        app: demo
+      name: demo
+      namespace: demo-federated
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app: demo
+      template:
+        metadata:
+          labels:
+            app: demo
+        spec:
+          imagePullSecrets:
+          - name: dockerhub-auth
+          containers:
+          - name: demo
+            image: docker.io/fernandoqnutanix/demo:1.0.1
+            imagePullPolicy: IfNotPresent
+            ports:
+            - containerPort: 8089
+            resources:
+              limits:
+                cpu: "200m"
+                memory: "256Mi"
+              requests:
+                cpu: "100m"
+                memory: "128Mi"

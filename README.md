@@ -51,6 +51,7 @@ Security benefits:
 - `gitops-config-repo/`
   - App manifests (`apps/`)
   - Flux image automation manifests (`flux-system/`)
+  - Federated phase-2 manifests (`federation-phase2/`)
 - `scripts/`
   - optional helper scripts (manual YAML flow is primary)
 - `fluxcd_lab_guide.md`

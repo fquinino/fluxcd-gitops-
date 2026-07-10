@@ -1,0 +1,22 @@
+apiVersion: types.kubefed.io/v1beta1
+kind: FederatedService
+metadata:
+  name: demo
+  namespace: demo-federated
+spec:
+  placement:
+    clusterSelector:
+      matchLabels:
+        kommander.d2iq.io/workspace-namespace-ref: nkp-workloads01-cqrp5-5gxht
+  template:
+    metadata:
+      name: demo
+      namespace: demo-federated
+    spec:
+      selector:
+        app: demo
+      ports:
+      - port: 80
+        targetPort: 8089
+        protocol: TCP
+      type: ClusterIP
